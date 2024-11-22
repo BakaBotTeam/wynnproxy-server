@@ -56,6 +56,13 @@ func WriteHandshake(conn *net.Conn, p PacketHandshake) error {
 	return conn.WritePacket(pkt)
 }
 
+func WriteDisconnect(conn *net.Conn, reason string) error {
+	return conn.WritePacket(packet.Marshal(
+		0x00,
+		packet.String(fmt.Sprintf("{\"text\":\"%s\"}", reason)),
+	))
+}
+
 func WriteLoginStart(conn *net.Conn, p PacketLoginStart) error {
 	pkt := packet.Marshal(
 		0x00,

@@ -12,6 +12,8 @@ import (
 	"github.com/Tnze/go-mc/net/packet"
 )
 
+var Connections = make([]mcnet.Conn, 0)
+
 type MinecraftProxyServer struct {
 	Listen string
 	Remote string
@@ -68,7 +70,7 @@ func (server *MinecraftProxyServer) handleConnection(conn *mcnet.Conn) error {
 }
 
 // forward connection
-func (s *MinecraftProxyServer) forwardConnection(conn *mcnet.Conn, handshake PacketHandshake) error {
+func (s *MinecraftProxyServer) forwardConnection(clientConn *mcnet.Conn, handshake PacketHandshake) error {
 	remoteConn, err := mcnet.DialMC(s.Remote)
 	if err != nil {
 		return err
@@ -80,7 +82,7 @@ func (s *MinecraftProxyServer) forwardConnection(conn *mcnet.Conn, handshake Pac
 
 	WriteHandshake(remoteConn, handshake)
 
-	loginStart, err := ReadLoginStart(conn)
+	loginStart, err := ReadLoginStart(clientConn)
 	if err != nil {
 		return err
 	}
@@ -93,12 +95,12 @@ func (s *MinecraftProxyServer) forwardConnection(conn *mcnet.Conn, handshake Pac
 	waitGroup.Add(2)
 
 	go func() {
-		io.Copy(remoteConn, conn)
+		io.Copy(remoteConn, clientConn)
 		waitGroup.Done()
 	}()
 
 	go func() {
-		io.Copy(conn, remoteConn)
+		io.Copy(clientConn, remoteConn)
 		waitGroup.Done()
 	}()
 
