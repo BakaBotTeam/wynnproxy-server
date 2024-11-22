@@ -23,7 +23,7 @@ type Config struct {
 	HttpServerInfo struct {
 		ListenPort int    `json:"listenport"`
 		Secret     string `json:"secret"`
-	}
+	} `json:"httpserverinfo"`
 }
 
 func LoadConfig() (*Config, error) {
