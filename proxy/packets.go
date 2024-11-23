@@ -35,7 +35,7 @@ type PacketLoginStart struct {
 }
 
 type PacketStatusResponse struct {
-	Response string
+	Response packet.String
 }
 
 func WriteStatusResponse(conn *net.Conn, p PacketStatusResponse) error {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"wynnproxyserver/icon"
@@ -12,7 +13,17 @@ import (
 	"github.com/Tnze/go-mc/net/packet"
 )
 
-var Connections = make([]mcnet.Conn, 0)
+var (
+	Users                 = make(map[string]User)
+	Names                 = make(map[string]string)
+	HANDSHAKE_STATUS_ID   = int32(1)
+	HANDSHAKE_LOGIN_ID    = int32(2)
+	HANDSHAKE_TRANSFER_ID = int32(3)
+)
+
+type User struct {
+	ServerAddress string
+}
 
 type MinecraftProxyServer struct {
 	Listen string
@@ -52,17 +63,21 @@ func (server *MinecraftProxyServer) CloseServer() {
 
 func (server *MinecraftProxyServer) handleConnection(conn *mcnet.Conn) error {
 	defer conn.Close()
+
 	handshake, err := ReadHandshake(conn)
 
 	if err != nil {
 		return err
 	}
 
-	if handshake.EnumConnectionState == 1 { //protocol id 1: Status
+	if handshake.EnumConnectionState == HANDSHAKE_STATUS_ID {
 		err = server.handlePing(conn, *handshake)
 		return err
-	} else if handshake.EnumConnectionState == 2 { //protocol id 2: Login
+	} else if handshake.EnumConnectionState == HANDSHAKE_LOGIN_ID {
 		err = server.forwardConnection(conn, *handshake)
+		return err
+	} else if handshake.EnumConnectionState == HANDSHAKE_TRANSFER_ID {
+		err = server.forwardHandshakeConnection(conn, *handshake)
 		return err
 	}
 
@@ -70,15 +85,69 @@ func (server *MinecraftProxyServer) handleConnection(conn *mcnet.Conn) error {
 }
 
 // forward connection
-func (s *MinecraftProxyServer) forwardConnection(clientConn *mcnet.Conn, handshake PacketHandshake) error {
-	remoteConn, err := mcnet.DialMC(s.Remote)
+func (server *MinecraftProxyServer) forwardHandshakeConnection(clientConn *mcnet.Conn, handshake PacketHandshake) error {
+	value, nameExists := Names[strings.Split(clientConn.Socket.RemoteAddr().String(), ":")[0]]
+	if nameExists {
+		user, exists := Users[value]
+		if exists {
+			remoteConn, err := mcnet.DialMC(user.ServerAddress)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				remoteConn.Close()
+			}()
+
+			splitAddress := strings.SplitN(user.ServerAddress, ":", 2)
+			port, _ := strconv.Atoi(splitAddress[1])
+			handshake.ServerAddress = splitAddress[0]
+			handshake.ServerPort = uint16(port)
+			handshake.EnumConnectionState = HANDSHAKE_LOGIN_ID
+
+			WriteHandshake(remoteConn, handshake)
+
+			loginStart, err := ReadLoginStart(clientConn)
+			if err != nil {
+				return err
+			}
+
+			WriteLoginStart(remoteConn, *loginStart)
+
+			log.Println("Forwarding packets for", string(loginStart.Name))
+
+			var waitGroup sync.WaitGroup
+			waitGroup.Add(2)
+
+			go func() {
+				io.Copy(remoteConn, clientConn)
+				waitGroup.Done()
+			}()
+
+			go func() {
+				io.Copy(clientConn, remoteConn)
+				waitGroup.Done()
+			}()
+
+			waitGroup.Wait()
+		}
+	}
+	return nil
+}
+
+// forward connection
+func (server *MinecraftProxyServer) forwardConnection(clientConn *mcnet.Conn, handshake PacketHandshake) error {
+	remoteConn, err := mcnet.DialMC(server.Remote)
 	if err != nil {
 		return err
 	}
-	defer remoteConn.Close()
+	defer func() {
+		remoteConn.Close()
+	}()
 
-	handshake.ServerAddress = strings.SplitN(s.Remote, ":", 2)[0]
-	handshake.ServerPort = uint16(25565)
+	splitAddress := strings.SplitN(server.Remote, ":", 2)
+	port, _ := strconv.Atoi(splitAddress[1])
+	handshake.ServerAddress = splitAddress[0]
+	handshake.ServerPort = uint16(port)
 
 	WriteHandshake(remoteConn, handshake)
 
@@ -87,9 +156,11 @@ func (s *MinecraftProxyServer) forwardConnection(clientConn *mcnet.Conn, handsha
 		return err
 	}
 
+	Names[strings.Split(clientConn.Socket.RemoteAddr().String(), ":")[0]] = string(loginStart.Name)
+
 	WriteLoginStart(remoteConn, *loginStart)
 
-	log.Println("Forwarding packets for", string(loginStart.Name))
+	log.Println("Forwarding packets for", string(loginStart.Name), "| Waiting to transfer to proxy server...")
 
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(2)
@@ -138,7 +209,7 @@ func (server *MinecraftProxyServer) handlePing(conn *mcnet.Conn, handshake Packe
 			}
 
 			err = WriteStatusResponse(conn, PacketStatusResponse{
-				Response: string(bytes),
+				Response: packet.String(bytes),
 			})
 
 			if err != nil {

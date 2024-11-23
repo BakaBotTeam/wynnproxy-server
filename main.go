@@ -2,11 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
+	http "wynnproxyserver/http"
 	mcproxy "wynnproxyserver/proxy"
 )
 
@@ -76,12 +75,13 @@ func main() {
 
 	proxyPort := proxyServerInfo.ListenPort
 	httpPort := httpServerInfo.ListenPort
+	secret := httpServerInfo.Secret
 
 	localAddress := "127.0.0.1:" + strconv.Itoa(proxyPort)
 	serverAddress := proxyServerInfo.RemoteHost + ":" + strconv.Itoa(proxyServerInfo.RemotePort)
 	motd := proxyServerInfo.MOTD
 
-	server := mcproxy.MinecraftProxyServer{
+	proxyServer := mcproxy.MinecraftProxyServer{
 		Listen: localAddress,
 		Remote: serverAddress,
 		MOTD:   motd,
@@ -90,16 +90,11 @@ func main() {
 	log.Println("Proxy server is running on localhost:" + strconv.Itoa(proxyPort))
 
 	go func() {
-		server.StartServer()
+		proxyServer.StartServer()
 	}()
 
-	http.HandleFunc("/verify", func(writer http.ResponseWriter, request *http.Request) {
-		fmt.Fprintf(writer, "暂时先这样 等客户端mod吧!")
-	})
-
-	err = http.ListenAndServe(":"+strconv.Itoa(httpPort), nil)
-
-	if err != nil {
-		log.Println("Failed to start HttpServer:", err)
-	}
+	http.HttpServer{
+		ListenPort: httpPort,
+		Secret:     secret,
+	}.InitServer()
 }
