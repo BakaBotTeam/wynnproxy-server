@@ -77,7 +77,7 @@ func main() {
 	httpPort := httpServerInfo.ListenPort
 	secret := httpServerInfo.Secret
 
-	localAddress := "127.0.0.1:" + strconv.Itoa(proxyPort)
+	localAddress := "0.0.0.0:" + strconv.Itoa(proxyPort)
 	serverAddress := proxyServerInfo.RemoteHost + ":" + strconv.Itoa(proxyServerInfo.RemotePort)
 	motd := proxyServerInfo.MOTD
 
